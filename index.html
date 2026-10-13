@@ -1,0 +1,115 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f766e"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Move Timer">
+<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png">
+<title>Move Timer</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:17px/1.4 -apple-system,system-ui,sans-serif;background:#f0fdfa;color:#134e4a}
+header{background:#0f766e;color:#fff;padding:calc(env(safe-area-inset-top) + 16px) 18px 16px}
+h1{margin:0;font-size:24px}header p{margin:4px 0 0;opacity:.85;font-size:14px}
+main{padding:14px;max-width:560px;margin:auto;padding-bottom:110px}
+.card{background:#fff;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 1px 4px #0001}
+.row{display:flex;align-items:center;gap:10px}.grow{flex:1}
+.name{font-size:20px;font-weight:700}.meta{font-size:14px;color:#557}
+.next{margin-top:8px;font-size:15px;color:#0f766e;font-weight:600}
+.off{opacity:.5}
+button{font:inherit;border:0;border-radius:12px;padding:12px 16px;min-height:48px;cursor:pointer}
+.pri{background:#0f766e;color:#fff;font-weight:700}.sec{background:#ccfbf1;color:#134e4a}.del{background:#fee2e2;color:#991b1b}
+.acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}.acts button{flex:1;padding:10px;font-size:15px}
+.fab{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 18px);width:min(520px,92%);font-size:19px;box-shadow:0 4px 12px #0003}
+.sw{position:relative;width:58px;height:34px;flex:none}.sw input{opacity:0;width:0;height:0}
+.sw span{position:absolute;inset:0;background:#cbd5e1;border-radius:34px;transition:.2s}
+.sw span:before{content:"";position:absolute;width:28px;height:28px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.sw input:checked+span{background:#0f766e}.sw input:checked+span:before{transform:translateX(24px)}
+dialog{border:0;border-radius:20px;padding:20px;width:min(520px,94vw)}dialog::backdrop{background:#0007}
+label{display:block;font-weight:600;margin:12px 0 6px}
+input[type=text],input[type=time]{width:100%;font:inherit;padding:12px;border:2px solid #99f6e4;border-radius:12px}
+.seg{display:flex;gap:6px;flex-wrap:wrap}.seg button{flex:1;background:#ccfbf1;color:#134e4a;padding:10px 6px;min-width:44px}
+.seg button.on{background:#0f766e;color:#fff}
+.banner{background:#fef3c7;color:#78350f;border-radius:12px;padding:12px;font-size:14px;margin-bottom:12px}
+#alert .big{font-size:26px;font-weight:800;text-align:center;margin:10px 0}
+.empty{text-align:center;color:#557;padding:30px 10px}
+</style></head><body>
+<header><h1>🏃 Move Timer</h1><p id="clock"></p></header>
+<main>
+<div class="banner" id="tip">Reminders sound only while this app is open. For reminders when your phone is locked, tap <b>📅 Calendar</b> on a timer (or "Add all to calendar" below).</div>
+<div class="row" style="margin-bottom:12px;gap:8px"><button class="sec grow" id="notif">🔔 Enable alerts</button><button class="sec grow" id="icsAll">📅 Add all to calendar</button></div>
+<div id="list"></div>
+</main>
+<button class="pri fab" id="add">＋ New timer</button>
+<dialog id="ed"><form method="dialog" id="f">
+<h2 id="edt" style="margin:0">New timer</h2>
+<label>Exercise name</label><input type="text" id="fname" required maxlength="40" placeholder="e.g. Calf raises">
+<label>Every</label><div class="seg" id="fint"></div>
+<div class="row"><div class="grow"><label>From</label><input type="time" id="fstart" value="08:00"></div><div class="grow"><label>Until</label><input type="time" id="fend" value="20:00"></div></div>
+<label>Days</label><div class="seg" id="fdays"></div>
+<div class="acts"><button type="button" class="sec" id="cancel">Cancel</button><button class="pri" id="save" value="save">Save</button></div>
+</form></dialog>
+<dialog id="alert"><div style="text-align:center;font-size:54px">💪</div><div class="big" id="aname"></div><p style="text-align:center" id="atxt"></p><button class="pri" style="width:100%" id="done">Done ✓</button></dialog>
+<script>
+const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],ICSD=['SU','MO','TU','WE','TH','FR','SA'],INTS=[15,30,45,60];
+let timers=JSON.parse(localStorage.getItem('timers')||'[]'),editing=null,fired=JSON.parse(localStorage.getItem('fired')||'{}');
+const $=id=>document.getElementById(id),save=()=>localStorage.setItem('timers',JSON.stringify(timers));
+const toMin=s=>{const[h,m]=s.split(':').map(Number);return h*60+m};
+const fmt=m=>{const h=Math.floor(m/60),mm=m%60;return (h%12||12)+':'+String(mm).padStart(2,'0')+(h<12?' AM':' PM')};
+function slots(t){const a=[];for(let m=toMin(t.start);m<=toMin(t.end);m+=t.interval)a.push(m);return a}
+function nextFire(t,now=new Date()){if(!t.on)return null;const s=slots(t);
+ for(let d=0;d<8;d++){const day=new Date(now.getFullYear(),now.getMonth(),now.getDate()+d);if(!t.days.includes(day.getDay()))continue;
+  for(const m of s){const dt=new Date(day.getFullYear(),day.getMonth(),day.getDate(),Math.floor(m/60),m%60);if(dt>now)return dt}}return null}
+function rel(dt){const now=new Date(),mins=Math.round((dt-now)/60000);const same=dt.toDateString()==now.toDateString();
+ const tm=dt.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+ return (same?'Today':dt.toLocaleDateString([],{weekday:'short'}))+' at '+tm+(mins<60?` (in ${Math.max(mins,1)} min)`:` (in ${Math.floor(mins/60)}h ${mins%60}m)`)}
+function render(){$('clock').textContent=new Date().toLocaleString([],{weekday:'long',hour:'numeric',minute:'2-digit'});
+ const L=$('list');if(!timers.length){L.innerHTML='<div class="card empty">No timers yet.<br>Tap <b>＋ New timer</b> to add one.</div>';return}
+ L.innerHTML='';timers.forEach(t=>{const n=nextFire(t),c=document.createElement('div');c.className='card'+(t.on?'':' off');
+  const dtxt=t.days.length==7?'Every day':t.days.map(d=>DAYS[d]).join(' ');
+  c.innerHTML=`<div class="row"><div class="grow"><div class="name"></div><div class="meta">Every ${t.interval} min · ${fmt(toMin(t.start))}–${fmt(toMin(t.end))} · ${dtxt}</div></div>
+  <label class="sw"><input type="checkbox" ${t.on?'checked':''}><span></span></label></div>
+  <div class="next">${t.on?(n?'⏰ Next: '+rel(n):'No upcoming reminders'):'Paused'}</div>
+  <div class="acts"><button class="sec e">✏️ Edit</button><button class="sec c">📅 Calendar</button><button class="del d">🗑️</button></div>`;
+  c.querySelector('.name').textContent=t.name;
+  c.querySelector('input').onchange=e=>{t.on=e.target.checked;save();render()};
+  c.querySelector('.e').onclick=()=>openEd(t);c.querySelector('.c').onclick=()=>download([t]);
+  c.querySelector('.d').onclick=()=>{if(confirm('Delete "'+t.name+'"?')){timers=timers.filter(x=>x!==t);save();render()}};
+  L.appendChild(c)})}
+let fi=30,fd=[0,1,2,3,4,5,6];
+function drawSeg(){$('fint').innerHTML='';INTS.forEach(i=>{const b=document.createElement('button');b.type='button';b.textContent=i+' min';b.className=i==fi?'on':'';b.onclick=()=>{fi=i;drawSeg()};$('fint').appendChild(b)});
+ $('fdays').innerHTML='';DAYS.forEach((d,i)=>{const b=document.createElement('button');b.type='button';b.textContent=d[0]+d[1];b.className=fd.includes(i)?'on':'';b.onclick=()=>{fd=fd.includes(i)?fd.filter(x=>x!=i):[...fd,i].sort();drawSeg()};$('fdays').appendChild(b)})}
+function openEd(t){editing=t||null;$('edt').textContent=t?'Edit timer':'New timer';$('fname').value=t?t.name:'';$('fstart').value=t?t.start:'08:00';$('fend').value=t?t.end:'20:00';fi=t?t.interval:30;fd=t?[...t.days]:[0,1,2,3,4,5,6];drawSeg();$('ed').showModal()}
+$('add').onclick=()=>openEd();$('cancel').onclick=()=>$('ed').close();
+$('f').onsubmit=e=>{const name=$('fname').value.trim();if(!name)return e.preventDefault();
+ if(toMin($('fend').value)<toMin($('fstart').value)){alert('"Until" must be after "From".');return e.preventDefault()}
+ if(!fd.length){alert('Pick at least one day.');return e.preventDefault()}
+ const v={name,interval:fi,start:$('fstart').value,end:$('fend').value,days:fd};
+ if(editing)Object.assign(editing,v);else timers.push({id:Date.now().toString(36),on:true,...v});save();render()};
+// alerts
+let actx;function beep(){try{actx=actx||new (window.AudioContext||webkitAudioContext)();[0,.35,.7].forEach(o=>{const g=actx.createGain(),os=actx.createOscillator();os.frequency.value=880;os.connect(g);g.connect(actx.destination);g.gain.setValueAtTime(.4,actx.currentTime+o);g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+o+.3);os.start(actx.currentTime+o);os.stop(actx.currentTime+o+.3)})}catch(e){}}
+document.addEventListener('click',()=>{try{actx=actx||new (window.AudioContext||webkitAudioContext)();actx.resume()}catch(e){}},{once:true});
+async function notify(t){beep();navigator.vibrate&&navigator.vibrate([300,150,300,150,300]);
+ $('aname').textContent=t.name;$('atxt').textContent='Time to move! Next at '+(nextFire(t)?.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})||'—');if(!$('alert').open)$('alert').showModal();
+ if('Notification'in window&&Notification.permission=='granted'){const o={body:'Time for '+t.name+'!',tag:t.id,renotify:true,icon:'icon-192.png',vibrate:[300,150,300]};
+  try{const r=await navigator.serviceWorker?.getRegistration();r?r.showNotification('💪 '+t.name,o):new Notification('💪 '+t.name,o)}catch(e){}}}
+$('done').onclick=()=>$('alert').close();
+function tick(){const now=new Date();timers.forEach(t=>{if(!t.on||!t.days.includes(now.getDay()))return;const cur=now.getHours()*60+now.getMinutes();
+ for(const m of slots(t)){if(cur>=m&&cur-m<2){const k=t.id+now.toDateString()+m;if(!fired[k]){fired[k]=1;localStorage.setItem('fired',JSON.stringify(fired));notify(t)}}}});render()}
+setInterval(tick,15000);document.addEventListener('visibilitychange',()=>!document.hidden&&tick());
+$('notif').onclick=async()=>{if(!('Notification'in window)){alert('Notifications are not available here. On iPhone, add this app to your Home Screen first (Share → Add to Home Screen), then open it from there.');return}
+ const p=await Notification.requestPermission();$('notif').textContent=p=='granted'?'🔔 Alerts on':'🔕 Alerts blocked';if(p=='granted')beep()};
+if('Notification'in window&&Notification.permission=='granted')$('notif').textContent='🔔 Alerts on';
+// ICS
+const VTZ=`BEGIN:VTIMEZONE\r\nTZID:America/New_York\r\nBEGIN:DAYLIGHT\r\nTZOFFSETFROM:-0500\r\nTZOFFSETTO:-0400\r\nTZNAME:EDT\r\nDTSTART:19700308T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU\r\nEND:DAYLIGHT\r\nBEGIN:STANDARD\r\nTZOFFSETFROM:-0400\r\nTZOFFSETTO:-0500\r\nTZNAME:EST\r\nDTSTART:19701101T020000\r\nRRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n`;
+const esc=s=>s.replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\n/g,'\\n');
+function buildICS(list){const p=n=>String(n).padStart(2,'0'),d=new Date(),day=`${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`,
+ stamp=d.toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';let o=`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Move Timer//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n`+VTZ;
+ list.forEach(t=>{const rr=t.days.length==7?'FREQ=DAILY':'FREQ=WEEKLY;BYDAY='+t.days.map(i=>ICSD[i]).join(',');
+  slots(t).forEach(m=>{const h=Math.floor(m/60),mi=m%60,e=m+2;
+   o+=`BEGIN:VEVENT\r\nUID:${t.id}-${p(h)}${p(mi)}@movetimer\r\nDTSTAMP:${stamp}\r\nDTSTART;TZID=America/New_York:${day}T${p(h)}${p(mi)}00\r\nDTEND;TZID=America/New_York:${day}T${p(Math.floor(e/60)%24)}${p(e%60)}00\r\nRRULE:${rr}\r\nSUMMARY:${esc('💪 '+t.name)}\r\nDESCRIPTION:${esc('Move Timer reminder: '+t.name+' (every '+t.interval+' min)')}\r\nTRANSP:TRANSPARENT\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:${esc(t.name)}\r\nTRIGGER:PT0M\r\nEND:VALARM\r\nEND:VEVENT\r\n`})});
+ return o+'END:VCALENDAR\r\n'}
+function download(list){list=list.filter(t=>t.on||list.length==1);if(!list.length)return alert('Add a timer first.');
+ const b=new Blob([buildICS(list)],{type:'text/calendar'}),a=document.createElement('a');a.href=URL.createObjectURL(b);
+ a.download=(list.length==1?list[0].name.replace(/[^\w]+/g,'-'):'move-timers')+'.ics';document.body.appendChild(a);a.click();a.remove()}
+$('icsAll').onclick=()=>download(timers);
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+render();setInterval(render,30000);
+</script></body></html>
